@@ -1,29 +1,24 @@
 import pytest
 
+""" 
+In an IXIA testbed, there is no PTF docker. 
+Hence, we use ptf_ip field to store IXIA API server. 
+This fixture returns the IP address of the IXIA API server.
+"""
 @pytest.fixture(scope = "module")
 def ixia_api_serv_ip(testbed):
-    """ 
-    In an IXIA testbed, there is no PTF docker. 
-    Hence, we use ptf_ip field to store IXIA API server. 
-    This fixture returns the IP address of the IXIA API server.
-    """
     return testbed['ptf_ip']
 
+"""
+IXIA chassis are leaf fanout switches in the testbed.
+This fixture returns the hostnames and IP addresses of the IXIA chassis in the dictionary format.
+"""  
 @pytest.fixture(scope = "module")
-def ixia_dev_ip(duthost, fanouthosts):
-    """
-    There should be only one IXIA chassis (traffic generator) in an IXIA testbed.
-    This IXIA chassis should be the only fanout devce.
-    This fixture returns the IP address of the IXIA chassis.
-    """
-    if len(fanouthosts) != 1:
-        return None 
+def ixia_dev(duthost, fanouthosts):
+    result = dict()
+    ixia_dev_hostnames = fanouthosts.keys()
+    for hostname in ixia_dev_hostnames:
+        result[hostname] = duthost.host.options['inventory_manager'].get_host(hostname).get_vars()['ansible_host']
     
-    ixia_dev_hostname = fanouthosts.keys()[0]
-    return duthost.host.options['inventory_manager'].get_host(ixia_dev_hostname).get_vars()['ansible_host']
-    
-    
-    
-    
-    
+    return result
     
