@@ -8,14 +8,28 @@ from common.platform.daemon_utils import check_pmon_daemon_status
 from common.reboot import *
 from common.platform.device_utils import fanout_switch_port_lookup
 from common.helpers import assertions
-from ixia_fixtures import ixia_api_serv_ip, ixia_dev_ip
+from ixia_fixtures import ixia_api_serv_ip, ixia_dev
+from ixia_helpers import get_neigh_ixia_mgmt_ip, get_neigh_ixia_card, get_neigh_ixia_port 
 
 pytestmark = [pytest.mark.disable_loganalyzer]
 
-def test_testbed(testbed, conn_graph_facts, duthost, ixia_api_serv_ip, ixia_dev_ip):
+def test_testbed(testbed, conn_graph_facts, duthost, ixia_api_serv_ip, ixia_dev, creds):
     print "==== testbed: {}".format(testbed)
     print "==== conn_graph_facts: {}".format(conn_graph_facts)
     print "==== IXIA API server IP: {}".format(ixia_api_serv_ip)
-    print "==== IXIA chassis IP: {}".format(ixia_dev_ip)
+    print "==== IXIA chassis info: {}".format(ixia_dev)
     print "==== DUT hostname: {}".format(duthost.hostname)
+    
+    print "==== Testbed info"
+    device_conn = conn_graph_facts['device_conn']
+    for intf in device_conn:
+        ixia_mgmt_ip = get_neigh_ixia_mgmt_ip(intf=intf, conn_graph_facts=conn_graph_facts, ixia_dev=ixia_dev)
+        ixia_card = get_neigh_ixia_card(intf=intf, conn_graph_facts=conn_graph_facts)
+        ixia_port = get_neigh_ixia_port(intf=intf, conn_graph_facts=conn_graph_facts)
+        
+        print "\tDUT interface: {}".format(intf)
+        print "\tIXIA management IP: {}".format(ixia_mgmt_ip)
+        print "\tIXIA card: {}".format(ixia_card)
+        print "\tIXIA port: {}".format(ixia_port)
+        print ""
     assert 0
