@@ -8,8 +8,8 @@ from common.platform.daemon_utils import check_pmon_daemon_status
 from common.reboot import *
 from common.platform.device_utils import fanout_switch_port_lookup
 from common.helpers import assertions
-from ixia_fixtures import ixia_api_serv_ip, ixia_api_serv_user, ixia_api_serv_passwd, ixia_dev
-from ixia_helpers import get_neigh_ixia_mgmt_ip, get_neigh_ixia_card, get_neigh_ixia_port 
+from lib.ixia_fixtures import ixia_api_serv_ip, ixia_api_serv_user, ixia_api_serv_passwd, ixia_dev
+from lib.ixia_helpers import get_neigh_ixia_mgmt_ip, get_neigh_ixia_card, get_neigh_ixia_port 
 
 pytestmark = [pytest.mark.disable_loganalyzer]
 
