@@ -1,13 +1,8 @@
 import logging
 import time
 import pytest
-from common.utilities import wait_until
 from common.fixtures.conn_graph_facts import conn_graph_facts
-from common.platform.interface_utils import check_interface_information
-from common.platform.daemon_utils import check_pmon_daemon_status
-from common.reboot import *
-from common.platform.device_utils import fanout_switch_port_lookup
-from common.helpers import assertions
+from common.helpers.assertions import pytest_assert
 from lib.ixia_fixtures import ixia_api_serv_ip, ixia_api_serv_user, ixia_api_serv_passwd, ixia_dev
 from lib.ixia_helpers import get_neigh_ixia_mgmt_ip, get_neigh_ixia_card, get_neigh_ixia_port, \
     create_session, remove_session, config_ports, create_topology, start_protocols, create_ipv4_traffic, \
@@ -36,19 +31,15 @@ IXIA sends PFC pause frames from rx_port to pause priorities test_prio_list
 @param port_bw: bandwidth (in Mbps) of tx_port and rx_port
 @param test_prio_list: list of priorities to test
 @param bg_prio_list: list of priorities of background traffic
-@param pfc_storm_dur: PFC pause storm duration in second
-@param data_traffic_dur: data traffic duration in second
-@param test_prio_paused: if the priorities to test should be paused
-@return if the experiment gets expected results
+@param exp_dur: experiment duration in second
+@param paused: if test traffic should be paused
 """
-def run_pfc_exp(session, dut, tx_port, rx_port, port_bw, test_prio_list, bg_prio_list, pfc_storm_dur, \
-                data_traffic_dur, test_prio_paused):
-    
+def run_pfc_exp(session, dut, tx_port, rx_port, port_bw, test_prio_list, bg_prio_list, exp_dur, paused):
     """ Disable DUT's PFC watchdog """
     dut.shell('sudo pfcwd stop')
     
     vlan_subnet = get_vlan_subnet(dut)
-    assert(vlan_subnet is not None)
+    pytest_assert(vlan_subnet is not None, "Fail to get Vlan subnet information")
     
     gw_addr = vlan_subnet.split('/')[0]
     """ One for sender and the other one for receiver """
@@ -77,7 +68,7 @@ def run_pfc_exp(session, dut, tx_port, rx_port, port_bw, test_prio_list, bg_prio
                                        source=topo_sender,
                                        destination=topo_receiver,
                                        pkt_size=DATA_PKT_SIZE,
-                                       duration=data_traffic_dur,
+                                       duration=exp_dur,
                                        rate_percent=50,
                                        start_delay=1,
                                        dscp_list=test_prio_list,
@@ -88,52 +79,48 @@ def run_pfc_exp(session, dut, tx_port, rx_port, port_bw, test_prio_list, bg_prio
                                              source=topo_sender,
                                              destination=topo_receiver,
                                              pkt_size=DATA_PKT_SIZE,
-                                             duration=data_traffic_dur,
+                                             duration=exp_dur,
                                              rate_percent=50,
                                              start_delay=1,
                                              dscp_list=bg_prio_list,
                                              lossless_prio_list=None)
     
-    """ Pause time duration (in second) per PFC pause frame """ 
+    """ Pause time duration (in second) for each PFC pause frame """ 
     pause_dur_per_pkt = 65535 * 64 * 8.0 / (port_bw * 1000000) 
     
+    """ Do not specify duration here as we want it keep running """
     pfc_traffic = create_pause_traffic(session=session,
                                        name='PFC Pause Storm',
                                        source=rx_port,
                                        pkt_per_sec=1.1/pause_dur_per_pkt,
-                                       duration=pfc_storm_dur,
                                        start_delay=0,
                                        global_pause=False,
                                        pause_prio_list=test_prio_list)
     
     start_traffc(session)
-    """ Wait for data traffic to finish. Note that there is a 1 second delay for data traffic. """
-    time.sleep(data_traffic_dur+2)
     
-    """ Capture statistics before traffic stops """
+    """ Wait for test and background traffic to finish """
+    time.sleep(exp_dur+1.5)
+    
+    """ Capture traffic statistics  """
     flow_statistics = get_statistics(session)
-    
-    result = True 
-    for row_number,flow_stat in enumerate(flow_statistics.Rows):
-        tx_frames = int(flow_stat['Tx Frames'])
-        rx_frames = int(flow_stat['Rx Frames'])
-        rx_rate = float(flow_stat['Rx Rate (Mbps)'])
-        frames_delta = int(flow_stat['Frames Delta'])
         
-        if 'Test Data Traffic' in flow_stat['Traffic Item'] and test_prio_paused:
-            """ Traffic should be fully paused by PFC """            
-            result = result and (tx_frames > 0) and (rx_frames == 0)
+    for row_number, flow_stat in enumerate(flow_statistics.Rows):
+        tx_frames = int(flow_stat['Tx Frames'])
+        rx_frames = int(flow_stat['Rx Frames'])       
+        
+        if 'Test' in flow_stat['Traffic Item']:
+            if paused:          
+                pytest_assert(tx_frames>0 and rx_frames==0, "Test traffic should be fully paused")
+            else:
+                pytest_assert(tx_frames>0 and tx_frames==rx_frames, "Test traffic should not be impacted")
                        
         elif 'PFC' in flow_stat['Traffic Item']:
-            """ PFC packets should not be forwarded by the switch """
-            result = result and (tx_frames > 0) and (rx_frames == 0)
+            pytest_assert(tx_frames>0 and rx_frames==0, "PFC packets should be dropped")
+        else:         
+            pytest_assert(tx_frames>0 and tx_frames==rx_frames, "Background traffic should not be impacted")
         
-        else: 
-            """ All the other packets should not be dropped """           
-            result = result and (tx_frames == rx_frames)
-            
     stop_traffic(session)
-    return result
 
 def test_pfc_pause_lossless(testbed, conn_graph_facts, duthost, ixia_dev, ixia_api_serv_ip, \
                             ixia_api_serv_user, ixia_api_serv_passwd):
@@ -166,7 +153,7 @@ def test_pfc_pause_lossless(testbed, conn_graph_facts, duthost, ixia_dev, ixia_a
         print ""
     
     """ The topology should have at least two interfaces """
-    assert(len(device_conn)>=2)
+    pytest_assert(len(device_conn)>=2, "The topology should have at least two interfaces")
         
     lossless_prio = [3, 4]
     lossy_prio = [0, 1]
@@ -189,29 +176,24 @@ def test_pfc_pause_lossless(testbed, conn_graph_facts, duthost, ixia_dev, ixia_a
             rx_port_bw = port_list[rx_id]['speed']
             tx_port_bw = port_list[tx_id]['speed']
             
-            assert(rx_port_bw == tx_port_bw)
+            pytest_assert(rx_port_bw == tx_port_bw)
             
             other_prio = list(all_prio)
             other_prio.remove(prio)
             
-            """ PFC pause storm duration in second """
-            pfc_storm_dur = 10
-            """ Data traffic duration in second """
-            data_traffic_dur = 5
-            assert(pfc_storm_dur > data_traffic_dur+2)
+            exp_dur = 2
                 
-            result = run_pfc_exp(session=session, 
-                                 dut=duthost, 
-                                 tx_port=tx_port, 
-                                 rx_port=rx_port,
-                                 port_bw=tx_port_bw,
-                                 test_prio_list=[prio], 
-                                 bg_prio_list=other_prio,
-                                 pfc_storm_dur=pfc_storm_dur,
-                                 data_traffic_dur=data_traffic_dur,
-                                 test_prio_paused=True)
+            run_pfc_exp(session=session, 
+                        dut=duthost, 
+                        tx_port=tx_port, 
+                        rx_port=rx_port,
+                        port_bw=tx_port_bw,
+                        test_prio_list=[prio], 
+                        bg_prio_list=other_prio,
+                        exp_dur=exp_dur,
+                        paused=True)
 
             remove_session(session)
-            assert(result)
+
 
     
