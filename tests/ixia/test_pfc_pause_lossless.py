@@ -8,6 +8,7 @@ from lib.ixia_helpers import get_neigh_ixia_mgmt_ip, get_neigh_ixia_card, get_ne
     create_session, remove_session, config_ports, create_topology, start_protocols, create_ipv4_traffic, \
     create_pause_traffic, start_traffc, stop_traffic, get_statistics
 from lib.common_helpers import get_vlan_subnet, get_addrs_in_subnet
+from lib.qos_fixtures import lossless_prio_dscp_map
 
 pytestmark = [pytest.mark.disable_loganalyzer]
 
@@ -21,20 +22,23 @@ Run a PFC experiment
 IXIA tx_port ------ |   DUT   |------ IXIA rx_port
                     |_________|
 
-IXIA sends test traffic (priorities: test_prio_list) and background traffic from tx_port
-IXIA sends PFC pause frames from rx_port to pause priorities test_prio_list
+IXIA sends test traffic and background traffic from tx_port
+IXIA sends PFC pause frames from rx_port to pause priorities 
                     
 @param session: IXIA session
 @param dut: Ansible instance of SONiC device under test (DUT)
 @param tx_port: IXIA port to transmit traffic
 @param rx_port: IXIA port to receive traffic
 @param port_bw: bandwidth (in Mbps) of tx_port and rx_port
-@param test_prio_list: list of priorities to test
-@param bg_prio_list: list of priorities of background traffic
+@param test_prio_list: PFC priorities of test traffic and PFC pause frames
+@param test_dscp_list: DSCP values of test traffic
+@param bg_dscp_list: DSCP values of background traffic
 @param exp_dur: experiment duration in second
 @param paused: if test traffic should be paused
 """
-def run_pfc_exp(session, dut, tx_port, rx_port, port_bw, test_prio_list, bg_prio_list, exp_dur, paused):
+def run_pfc_exp(session, dut, tx_port, rx_port, port_bw, test_prio_list, test_dscp_list, bg_dscp_list,\
+                exp_dur, paused):
+    
     """ Disable DUT's PFC watchdog """
     dut.shell('sudo pfcwd stop')
     
@@ -71,7 +75,7 @@ def run_pfc_exp(session, dut, tx_port, rx_port, port_bw, test_prio_list, bg_prio
                                        duration=exp_dur,
                                        rate_percent=50,
                                        start_delay=1,
-                                       dscp_list=test_prio_list,
+                                       dscp_list=test_dscp_list,
                                        lossless_prio_list=test_prio_list)
 
     background_traffic = create_ipv4_traffic(session=session,
@@ -82,7 +86,7 @@ def run_pfc_exp(session, dut, tx_port, rx_port, port_bw, test_prio_list, bg_prio
                                              duration=exp_dur,
                                              rate_percent=50,
                                              start_delay=1,
-                                             dscp_list=bg_prio_list,
+                                             dscp_list=bg_dscp_list,
                                              lossless_prio_list=None)
     
     """ Pause time duration (in second) for each PFC pause frame """ 
@@ -122,45 +126,29 @@ def run_pfc_exp(session, dut, tx_port, rx_port, port_bw, test_prio_list, bg_prio
         
     stop_traffic(session)
 
-def test_pfc_pause_lossless(testbed, conn_graph_facts, duthost, ixia_dev, ixia_api_serv_ip, \
-                            ixia_api_serv_user, ixia_api_serv_passwd):
+def test_pfc_pause_lossless(testbed, conn_graph_facts, lossless_prio_dscp_map, duthost, ixia_dev, \
+                            ixia_api_serv_ip, ixia_api_serv_user, ixia_api_serv_passwd):
     
-    print "==== testbed: {}".format(testbed)
-    print "==== conn_graph_facts: {}".format(conn_graph_facts)
-    print "==== IXIA API server IP: {}".format(ixia_api_serv_ip)
-    print "==== IXIA API server username: {}".format(ixia_api_serv_user)
-    print "==== IXIA API server password: {}".format(ixia_api_serv_passwd)
-    print "==== IXIA chassis info: {}".format(ixia_dev)
-    print "==== DUT hostname: {}".format(duthost.hostname)
-    
-    print "==== Testbed info"
     port_list = list()
     
     device_conn = conn_graph_facts['device_conn']
     for intf in device_conn:
-        ixia_mgmt_ip = get_neigh_ixia_mgmt_ip(intf=intf, conn_graph_facts=conn_graph_facts, ixia_dev=ixia_dev)
+        ixia_mgmt_ip = get_neigh_ixia_mgmt_ip(intf=intf, 
+                                              conn_graph_facts=conn_graph_facts, 
+                                              ixia_dev=ixia_dev)
+        
         ixia_card = get_neigh_ixia_card(intf=intf, conn_graph_facts=conn_graph_facts)
         ixia_port = get_neigh_ixia_port(intf=intf, conn_graph_facts=conn_graph_facts)
         port_list.append({'ip': ixia_mgmt_ip, 
                           'card_id': ixia_card, 
                           'port_id': ixia_port, 
                           'speed': int(device_conn[intf]['speed'])})
-            
-        print "\tDUT interface: {}".format(intf)
-        print "\tIXIA management IP: {}".format(ixia_mgmt_ip)
-        print "\tIXIA card: {}".format(ixia_card)
-        print "\tIXIA port: {}".format(ixia_port)
-        print ""
-    
+                
     """ The topology should have at least two interfaces """
     pytest_assert(len(device_conn)>=2, "The topology should have at least two interfaces")
-        
-    lossless_prio = [3, 4]
-    lossy_prio = [0, 1]
-    all_prio = lossless_prio + lossy_prio
-        
+                
     """ Test pausing each lossless priority individually """
-    for prio in lossless_prio:
+    for prio in lossless_prio_dscp_map:
         for i in range(len(port_list)):      
             session = create_session(server_ip=ixia_api_serv_ip, 
                                      username=ixia_api_serv_user, 
@@ -178,8 +166,10 @@ def test_pfc_pause_lossless(testbed, conn_graph_facts, duthost, ixia_dev, ixia_a
             
             pytest_assert(rx_port_bw == tx_port_bw)
             
-            other_prio = list(all_prio)
-            other_prio.remove(prio)
+            """ All the DSCP values mapped to this priority """
+            test_dscp_list = lossless_prio_dscp_map[prio]
+            """ The other DSCP values """
+            bg_dscp_list = [x for x in range(64) if x not in test_dscp_list]
             
             exp_dur = 2
                 
@@ -188,8 +178,9 @@ def test_pfc_pause_lossless(testbed, conn_graph_facts, duthost, ixia_dev, ixia_a
                         tx_port=tx_port, 
                         rx_port=rx_port,
                         port_bw=tx_port_bw,
-                        test_prio_list=[prio], 
-                        bg_prio_list=other_prio,
+                        test_prio_list=[prio],
+                        test_dscp_list=test_dscp_list, 
+                        bg_dscp_list=bg_dscp_list,
                         exp_dur=exp_dur,
                         paused=True)
 
