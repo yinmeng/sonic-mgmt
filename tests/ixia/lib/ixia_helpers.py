@@ -78,7 +78,7 @@ def remove_session(session):
 Configure ports of the IXIA chassis
 
 @param session: IXIA session
-@param port_list: List of port locations. Each entry has three keys: 'ip', 'card_id', 'port_id'
+@param port_list: List of port locations. Each entry has four keys: 'ip', 'card_id', 'port_id', 'speed'
 @return the list of ports if the configuration succeeds. Otherwise return None 
 """
 def config_ports(session, port_list):
@@ -96,13 +96,16 @@ def config_ports(session, port_list):
     """ Connect all mapped virtual ports to test port locations """
     port_map.Connect()
     
-    ix_network = session.Ixnetwork
-    for vport in ix_network.Vport.find():
+    ixnetwork = session.Ixnetwork
+    i = 0
+    for vport in ixnetwork.Vport.find():
         vport.L1Config.CurrentType = 'novusHundredGigLanFcoe'
         vport.L1Config.NovusHundredGigLan.Fcoe.PfcPriorityGroups = [0,1,2,3,4,5,6,7]
         vport.L1Config.NovusHundredGigLan.IeeeL1Defaults = False
         vport.L1Config.NovusHundredGigLan.EnableAutoNegotiation = False
-    
+        vport.L1Config.NovusHundredGigLan.Speed = 'speed{}g'.format(port_list[i]['speed']/1000)
+        i += 1
+        
     return vports
 
 """
